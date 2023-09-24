@@ -124,6 +124,7 @@ class Evaluate:
         # Rename the 'correct' column to the name of the metric function
         metric_name = metric.__name__
         df.rename(columns={'correct': metric_name}, inplace=True)
+        df.to_csv("evaluation_result.csv")
 
         if display_table:
             if isinstance(display_table, int):
