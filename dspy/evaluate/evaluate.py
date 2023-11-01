@@ -19,9 +19,10 @@ we print the number of failures, the first N examples that failed, and the first
 
 
 class Evaluate:
-    def __init__(self, *, devset, metric=None, num_threads=1, display_progress=False,
+    def __init__(self, *, devset, outfile, metric=None, num_threads=1, display_progress=False,
                  display_table=False, display=True, max_errors=5):
         self.devset = devset
+        self.outfile = outfile
         self.metric = metric
         self.num_threads = num_threads
         self.display_progress = display_progress
@@ -124,7 +125,7 @@ class Evaluate:
         # Rename the 'correct' column to the name of the metric function
         metric_name = metric.__name__
         df.rename(columns={'correct': metric_name}, inplace=True)
-        df.to_csv("evaluation_result.csv")
+        df.to_csv(self.outfile)
 
         if display_table:
             if isinstance(display_table, int):
