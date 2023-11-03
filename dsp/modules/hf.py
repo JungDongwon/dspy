@@ -30,7 +30,7 @@ def openai_to_hf(**kwargs):
 
 class HFModel(LM):
     def __init__(self, model: str, checkpoint: Optional[str] = None, is_client: bool = False,
-                 hf_device_map: Literal["auto", "balanced", "balanced_low_0", "sequential"] = "auto"):
+                 hf_device_map: Literal["auto", "balanced", "balanced_low_0", "sequential"] = "auto", **kwargs):
         """wrapper for Hugging Face models
 
         Args:
@@ -48,6 +48,16 @@ class HFModel(LM):
                 "You need to install Hugging Face transformers library to use HF models."
             ) from exc
         super().__init__(model)
+        self.kwargs = {
+            "model": model,
+            "temperature": 0.0,
+            "max_tokens": 150,
+            "top_p": 1,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
+            "n": 1,
+            **kwargs,
+        }
         self.provider = "hf"
         self.is_client = is_client
         self.device_map = hf_device_map
@@ -71,9 +81,9 @@ class HFModel(LM):
                     #     self.model = AutoModelClass.from_pretrained(peft_config.base_model_name_or_path, return_dict=True, load_in_8bit=True, device_map=hf_device_map)
                     #     self.model = PeftModel.from_pretrained(self.model, checkpoint)
                     # else:
-                    self.model = AutoModelClass.from_pretrained(checkpoint).to("cuda")
+                    self.model = AutoModelClass.from_pretrained(checkpoint, torch_dtype=torch.float16, device_map=hf_device_map)
                 else:
-                    self.model = AutoModelClass.from_pretrained(model).to("cuda")
+                    self.model = AutoModelForCausalLM.from_pretrained(model, torch_dtype=torch.float16, device_map=hf_device_map)
                 self.drop_prompt_from_output = False
             except ValueError:
                 self.model = AutoModelForCausalLM.from_pretrained(
