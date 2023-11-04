@@ -23,3 +23,4 @@ HFClientTGI = dsp.HFClientTGI
 
 Anyscale = dsp.Anyscale
 HFModel = dsp.HFModel
+Llama = dsp.Llama

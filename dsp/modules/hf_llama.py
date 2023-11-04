@@ -28,9 +28,9 @@ def openai_to_hf(**kwargs):
     return hf_kwargs
 
 
-class HFModel(LM):
+class Llama(LM):
     def __init__(self, model: str, checkpoint: Optional[str] = None, is_client: bool = False,
-                 hf_device_map: Literal["auto", "balanced", "balanced_low_0", "sequential"] = "auto"):
+                 hf_device_map: Literal["auto", "balanced", "balanced_low_0", "sequential"] = "auto", **kwargs):
         """wrapper for Hugging Face models
 
         Args:
@@ -48,6 +48,16 @@ class HFModel(LM):
                 "You need to install Hugging Face transformers library to use HF models."
             ) from exc
         super().__init__(model)
+        self.kwargs = {
+            "model": model,
+            "temperature": 0.0,
+            "max_tokens": 150,
+            "top_p": 1,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
+            "n": 1,
+            **kwargs,
+        }
         self.provider = "hf"
         self.is_client = is_client
         self.device_map = hf_device_map
@@ -59,6 +69,8 @@ class HFModel(LM):
                 self.decoder_only_model = ("CausalLM" in architecture) or ("GPT2LMHeadModel" in architecture)
                 assert self.encoder_decoder_model or self.decoder_only_model, f"Unknown HuggingFace model class: {model}"
                 self.tokenizer = AutoTokenizer.from_pretrained(model if checkpoint is None else checkpoint)
+                self.tokenizer.pad_token = self.tokenizer.bos_token
+                self.tokenizer.padding_side = "left"     
 
                 self.rationale = True
                 AutoModelClass = AutoModelForSeq2SeqLM if self.encoder_decoder_model else AutoModelForCausalLM
@@ -71,10 +83,10 @@ class HFModel(LM):
                     #     self.model = AutoModelClass.from_pretrained(peft_config.base_model_name_or_path, return_dict=True, load_in_8bit=True, device_map=hf_device_map)
                     #     self.model = PeftModel.from_pretrained(self.model, checkpoint)
                     # else:
-                    self.model = AutoModelClass.from_pretrained(checkpoint).to("cuda")
+                    self.model = AutoModelClass.from_pretrained(checkpoint, torch_dtype=torch.float16, device_map=hf_device_map).bfloat16()
                 else:
-                    self.model = AutoModelClass.from_pretrained(model).to("cuda")
-                self.drop_prompt_from_output = False
+                    self.model = AutoModelForCausalLM.from_pretrained(model, torch_dtype=torch.float16, device_map=hf_device_map).bfloat16()
+                self.drop_prompt_from_output = True
             except ValueError:
                 self.model = AutoModelForCausalLM.from_pretrained(
                     model if checkpoint is None else checkpoint,
@@ -104,13 +116,16 @@ class HFModel(LM):
         assert not self.is_client
         # TODO: Add caching
         kwargs = {**openai_to_hf(**self.kwargs), **openai_to_hf(**kwargs)}
-        # print(prompt)
+        # TODO: fix hard coded system prompt
+        system_prompt_prefix = """<s>[INST] <<SYS>>You must strictly follow the output format given in the instruction.<</SYS>>\n"""
+        system_prompt_postfix = """ [/INST]"""
+        prompt = system_prompt_prefix + prompt + system_prompt_postfix
         if isinstance(prompt, dict):
             try:
                 prompt = prompt['messages'][0]['content']
             except (KeyError, IndexError, TypeError):
                 print("Failed to extract 'content' from the prompt.")
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        inputs = self.tokenizer(prompt, return_tensors="pt", padding=True).to(self.device)
 
         # print(kwargs)
         outputs = self.model.generate(**inputs, **kwargs)
