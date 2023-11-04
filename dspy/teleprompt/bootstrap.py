@@ -135,9 +135,6 @@ class BootstrapFewShot(Teleprompter):
 
                     for name, predictor in teacher.named_predictors():
                         predictor.demos = predictor_cache[name]
-
-
-        try:
             if self.classifier:
                 success = (self.metric is None) or self.classifier(self.metric(example, prediction, trace))
             else:
