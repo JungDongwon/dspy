@@ -80,7 +80,6 @@ class Predict(Parameter):
             # print(f"#> Setting temperature to 0.7 since n={num_generations} and prior temperature={temperature}.")
 
         # All of the other kwargs are presumed to fit a prefix of the signature.
-
         x = dsp.Example(demos=demos, **kwargs)
 
         if self.lm is None:

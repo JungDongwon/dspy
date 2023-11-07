@@ -114,7 +114,9 @@ class TemplateV2:
         ):
             return ""
 
-        result = "Follow the following format.\n\n"
+        # Hot fix
+        #result = "Follow the following format.\n\n"
+        result = ""
 
         example = dsp.Example()
         for field in self.fields:

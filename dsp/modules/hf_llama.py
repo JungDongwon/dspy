@@ -50,7 +50,7 @@ class Llama(LM):
         super().__init__(model)
         self.kwargs = {
             "model": model,
-            "temperature": 0.0,
+            "temperature": 0.1,
             "max_tokens": 150,
             "top_p": 1,
             "frequency_penalty": 0,
@@ -116,10 +116,8 @@ class Llama(LM):
         assert not self.is_client
         # TODO: Add caching
         kwargs = {**openai_to_hf(**self.kwargs), **openai_to_hf(**kwargs)}
-        # TODO: fix hard coded system prompt
-        system_prompt_prefix = """<s>[INST] <<SYS>>You must strictly follow the output format given in the instruction.<</SYS>>\n"""
-        system_prompt_postfix = """ [/INST]"""
-        prompt = system_prompt_prefix + prompt + system_prompt_postfix
+        # TODO: Add system prompt
+        prompt = """<s>[INST] """ + prompt + """ [/INST]"""
         if isinstance(prompt, dict):
             try:
                 prompt = prompt['messages'][0]['content']
@@ -127,7 +125,10 @@ class Llama(LM):
                 print("Failed to extract 'content' from the prompt.")
         inputs = self.tokenizer(prompt, return_tensors="pt", padding=True).to(self.device)
 
-        # print(kwargs)
+        # TODO: hotfix
+        if kwargs.get("temperature") == 0.0:
+            kwargs["do_sample"] = False
+            
         outputs = self.model.generate(**inputs, **kwargs)
         if self.drop_prompt_from_output:
             input_length = inputs.input_ids.shape[1]
