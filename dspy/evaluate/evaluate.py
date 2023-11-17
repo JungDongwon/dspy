@@ -40,11 +40,12 @@ class Evaluate:
         pbar = tqdm.tqdm(total=len(devset), dynamic_ncols=True, disable=not display_progress)
         for idx, arg in devset:
             example_idx, example, prediction, score = wrapped_program(idx, arg)
-            reordered_devset.append((example_idx, example, prediction, score))
             ntotal += 1
             if isinstance(score, dict):
                 total_score += score
+                reordered_devset.append((example_idx, example, prediction, score))
             else:
+                reordered_devset.append((example_idx, example, prediction, {}))
                 continue
             if not total_score:
                 total_score = Counter(score)
@@ -73,10 +74,7 @@ class Evaluate:
         return reordered_devset, total_score, ntotal
 
     def _update_progress(self, pbar, score, ntotal):
-        try:
-            metric_name = list(score.keys())[0] # display the first score
-        except:
-            print(score)
+        metric_name = list(score.keys())[0] # display the first score
         pbar.set_description(f"Average {metric_name}: {score[metric_name]} / {ntotal}  ({round(100 * score[metric_name] / ntotal, 1)}%)")
         pbar.update()
 
