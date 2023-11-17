@@ -5,6 +5,7 @@ import dsp
 import tqdm
 import threading
 import pandas as pd
+from collections import Counter
 
 from IPython.display import display as ipython_display, HTML
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,20 +21,19 @@ we print the number of failures, the first N examples that failed, and the first
 
 class Evaluate:
     def __init__(self, *, devset, outfile, metric=None, num_threads=1, display_progress=False,
-                 display_table=False, display=True, max_errors=5):
+                 display=True, max_errors=5):
         self.devset = devset
         self.outfile = outfile
         self.metric = metric
         self.num_threads = num_threads
         self.display_progress = display_progress
-        self.display_table = display_table
         self.display = display
         self.max_errors = max_errors
         self.error_count = 0
         self.error_lock = threading.Lock()
 
     def _execute_single_thread(self, wrapped_program, devset, display_progress):
-        ncorrect = 0
+        total_score = Counter()
         ntotal = 0
         reordered_devset = []
         
@@ -41,15 +41,15 @@ class Evaluate:
         for idx, arg in devset:
             example_idx, example, prediction, score = wrapped_program(idx, arg)
             reordered_devset.append((example_idx, example, prediction, score))
-            ncorrect += score
+            total_score += score
             ntotal += 1
-            self._update_progress(pbar, ncorrect, ntotal)
+            self._update_progress(pbar, total_score, ntotal)
         pbar.close()
         
-        return reordered_devset, ncorrect, ntotal
+        return reordered_devset, total_score, ntotal
 
     def _execute_multi_thread(self, wrapped_program, devset, num_threads, display_progress):
-        ncorrect = 0
+        total_score = Counter()
         ntotal = 0
         reordered_devset = []
         
@@ -60,29 +60,28 @@ class Evaluate:
             for future in as_completed(futures):
                 example_idx, example, prediction, score = future.result()
                 reordered_devset.append((example_idx, example, prediction, score))
-                ncorrect += score
+                total_score += score
                 ntotal += 1
-                self._update_progress(pbar, ncorrect, ntotal)
+                self._update_progress(pbar, score, ntotal)
             pbar.close()
 
-        return reordered_devset, ncorrect, ntotal
+        return reordered_devset, total_score, ntotal
 
-    def _update_progress(self, pbar, ncorrect, ntotal):
-        pbar.set_description(f"Average Metric: {ncorrect} / {ntotal}  ({round(100 * ncorrect / ntotal, 1)})")
+    def _update_progress(self, pbar, score, ntotal):
+        metric_name = list(score.keys())[0] # display the first score
+        pbar.set_description(f"Average {metric_name}: {score[metric_name]} / {ntotal}  ({round(100 * score[metric_name] / ntotal, 1)}%)")
         pbar.update()
 
     def __call__(self, program, metric=None, devset=None, num_threads=None,
-                 display_progress=None, display_table=None, display=None,
+                 display_progress=None, display=None,
                  return_all_scores=False):
         metric = metric if metric is not None else self.metric
         devset = devset if devset is not None else self.devset
         num_threads = num_threads if num_threads is not None else self.num_threads
         display_progress = display_progress if display_progress is not None else self.display_progress
-        display_table = display_table if display_table is not None else self.display_table
 
         display = self.display if display is None else display
         display_progress = display_progress and display
-        display_table = display_table if display else False
 
         def wrapped_program(example_idx, example):
             # NOTE: TODO: Won't work if threads create threads!
@@ -112,59 +111,34 @@ class Evaluate:
         devset = list(enumerate(devset))
 
         if num_threads == 1:
-            reordered_devset, ncorrect, ntotal = self._execute_single_thread(wrapped_program, devset, display_progress)
+            reordered_devset, total_score, ntotal = self._execute_single_thread(wrapped_program, devset, display_progress)
         else:
-            reordered_devset, ncorrect, ntotal = self._execute_multi_thread(wrapped_program, devset, num_threads, display_progress)
+            reordered_devset, total_score, ntotal = self._execute_multi_thread(wrapped_program, devset, num_threads, display_progress)
 
         if display:
-            print(f"Average Metric: {ncorrect} / {ntotal}  ({round(100 * ncorrect / ntotal, 1)}%)")
+            for metric_name, score in total_score.items():
+                print(f"Average {metric_name}: {score} / {ntotal}  ({round(100 * score / ntotal, 1)}%)")
 
         predicted_devset = sorted(reordered_devset)
 
         # data = [{**example, **prediction, 'correct': score} for example, prediction, score in zip(reordered_devset, preds, scores)]
-        data = [merge_dicts(example, prediction) | {'correct': score} for _, example, prediction, score in predicted_devset]
-
+        #data = [merge_dicts(example, prediction) | {'correct': score} for _, example, prediction, score in predicted_devset]
+        data = [merge_dicts(merge_dicts(example, prediction), score) for _, example, prediction, score in predicted_devset]
+        
         df = pd.DataFrame(data)
 
         # Truncate every cell in the DataFrame
-        df = df.applymap(truncate_cell)
+        df = df.map(truncate_cell)
 
         # Rename the 'correct' column to the name of the metric function
-        metric_name = metric.__name__
-        df.rename(columns={'correct': metric_name}, inplace=True)
+        #metric_name = metric.__name__
+        #df.rename(columns={'correct': metric_name}, inplace=True)
         df.to_csv(self.outfile)
-
-        if display_table:
-            if isinstance(display_table, int):
-                df_to_display = df.head(display_table).copy()
-                truncated_rows = len(df) - display_table
-            else:
-                df_to_display = df.copy()
-                truncated_rows = 0
-
-            styled_df = configure_dataframe_display(df_to_display, metric_name)
-            
-            ipython_display(styled_df)
-
-            if truncated_rows > 0:
-                # Simplified message about the truncated rows
-                message = f"""
-                <div style='
-                    text-align: center; 
-                    font-size: 16px; 
-                    font-weight: bold; 
-                    color: #555; 
-                    margin: 10px 0;'>
-                    ... {truncated_rows} more rows not displayed ...
-                </div>
-                """
-                ipython_display(HTML(message))
                 
         if return_all_scores:
-            return round(100 * ncorrect / ntotal, 2), [score for *_, score in predicted_devset]
+            return {metric_name: round(100 * score / ntotal, 2) for metric_name, score in total_score.items()}, [score for *_, score in predicted_devset]
 
-        return round(100 * ncorrect / ntotal, 2)
-
+        return {metric_name: round(100 * score / ntotal, 2) for metric_name, score in total_score.items()}
 
 def merge_dicts(d1, d2):
     merged = {}
@@ -211,4 +185,3 @@ def configure_dataframe_display(df, metric_name):
     })
 
 # FIXME: TODO: The merge_dicts stuff above is way too quick and dirty.
-# TODO: the display_table can't handle False but can handle 0! Not sure how it works with True exactly, probably fails too.
