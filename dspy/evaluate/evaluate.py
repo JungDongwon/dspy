@@ -42,6 +42,8 @@ class Evaluate:
             example_idx, example, prediction, score = wrapped_program(idx, arg)
             reordered_devset.append((example_idx, example, prediction, score))
             total_score += score
+            if not total_score:
+                total_score = Counter(score)
             ntotal += 1
             self._update_progress(pbar, total_score, ntotal)
         pbar.close()
@@ -68,7 +70,10 @@ class Evaluate:
         return reordered_devset, total_score, ntotal
 
     def _update_progress(self, pbar, score, ntotal):
-        metric_name = list(score.keys())[0] # display the first score
+        try:
+            metric_name = list(score.keys())[0] # display the first score
+        except:
+            print(score)
         pbar.set_description(f"Average {metric_name}: {score[metric_name]} / {ntotal}  ({round(100 * score[metric_name] / ntotal, 1)}%)")
         pbar.update()
 
