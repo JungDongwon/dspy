@@ -41,10 +41,13 @@ class Evaluate:
         for idx, arg in devset:
             example_idx, example, prediction, score = wrapped_program(idx, arg)
             reordered_devset.append((example_idx, example, prediction, score))
-            total_score += score
+            ntotal += 1
+            if isinstance(score, dict):
+                total_score += score
+            else:
+                continue
             if not total_score:
                 total_score = Counter(score)
-            ntotal += 1
             self._update_progress(pbar, total_score, ntotal)
         pbar.close()
         
